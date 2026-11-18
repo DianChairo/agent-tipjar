@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentTipJar — Tips only Agent ID holders can send</title>
+<style>
+  body { font-family: system-ui, sans-serif; background:#0e0d0b; color:#f2efe9; margin:0; }
+  main { max-width:720px; margin:0 auto; padding:32px 20px 64px; }
+  h1 { font-size:34px; margin:0 0 8px; }
+  .sub { color:#b8b2a7; margin:0 0 24px; }
+  .card { background:#1a1815; border:1px solid #2c2925; border-radius:12px; padding:20px; margin:16px 0; }
+  .stats { display:flex; gap:24px; flex-wrap:wrap; }
+  .stat b { font-size:24px; display:block; }
+  .stat span { color:#b8b2a7; font-size:13px; }
+  label { display:block; font-size:13px; color:#b8b2a7; margin:12px 0 6px; }
+  input { width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #3a362f; background:#121110; color:#f2efe9; }
+  button { background:#f0b90b; color:#121110; border:0; border-radius:8px; padding:12px 20px; font-weight:700; cursor:pointer; margin-top:16px; }
+  button:disabled { opacity:.5; cursor:default; }
+  .warn { background:#2a1414; border:1px solid #5a2323; color:#f3c1c1; border-radius:8px; padding:12px; font-size:14px; }
+  .ok { color:#9fd89f; } .err { color:#f3a1a1; }
+  code { background:#26231f; padding:2px 6px; border-radius:6px; }
+  a { color:#f0b90b; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AgentTipJar</h1>
+  <p class="sub">A tip jar on BNB Chain that <b>only Agent ID (.ai) holders</b> can use — to send <i>and</i> to receive. Your Agent ID is your pass, your identity and your anti-spam shield.</p>
+
+  <div class="warn">Risk warning: crypto assets are volatile. Tips are irreversible BNB transfers forwarded instantly to the receiver. This demo is not financial advice and promises no returns.</div>
+
+  <div class="card">
+    <div class="stats">
+      <div class="stat"><b id="stTips">–</b><span>Total tips</span></div>
+      <div class="stat"><b id="stVol">–</b><span>BNB tipped</span></div>
+      <div class="stat"><b id="stAgents">–</b><span>Agent ID addresses interacting</span></div>
+    </div>
+    <p style="color:#b8b2a7;font-size:13px">Contract: <code id="contractAddr">TBD_MAINNET</code> · Registry: <code>0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F</code></p>
+  </div>
+
+  <div class="card">
+    <button id="connect">Connect wallet</button>
+    <p id="me" style="font-size:14px"></p>
+    <label>Receiver (must hold an Agent ID)</label>
+    <input id="to" placeholder="0x…">
+    <label>Amount (BNB)</label>
+    <input id="amt" placeholder="0.001">
+    <button id="send" disabled>Send tip</button>
+    <label>Your motto (Agent ID holders only, max 140 chars)</label>
+    <input id="motto" placeholder="e.g. bnbmaxi on chain">
+    <button id="setMotto" disabled>Set motto</button>
+    <p id="msg" style="font-size:14px"></p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">How it works</h3>
+    <ol>
+      <li>Hold an Agent ID (<code>name.ai</code>) in your Binance Agentic Wallet.</li>
+      <li>Connect any EVM wallet holding that address and send a tip to another Agent ID holder.</li>
+      <li>The contract checks <code>balanceOf</code> on the official Agent ID registry for both sides, forwards the BNB instantly (non-custodial — the contract never holds funds), and records the stats you see above.</li>
+    </ol>
+    <p style="color:#b8b2a7;font-size:13px">Source code is fully open and verified on BscScan. No owner, no admin keys, no pause, no withdrawal function.</p>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+const CONTRACT = "TBD_MAINNET";
+const RPC = "https://bsc-dataseed.bnbchain.org";
+const ABI = [
+  "function totalTips() view returns (uint256)",
+  "function totalVolume() view returns (uint256)",
+  "function uniqueAgents() view returns (uint256)",
+  "function isAgent(address) view returns (bool)",
+  "function tip(address) payable",
+  "function setMotto(string)"
+];
+const read = new ethers.Contract(CONTRACT, ABI, new ethers.JsonRpcProvider(RPC));
+async function refresh() {
+  if (CONTRACT === "TBD_MAINNET") return;
+  const [t, v, a] = await Promise.all([read.totalTips(), read.totalVolume(), read.uniqueAgents()]);
+  stTips.textContent = t.toString();
+  stVol.textContent = Number(ethers.formatEther(v)).toFixed(5);
+  stAgents.textContent = a.toString();
+}
+let signer, contract;
+connect.onclick = async () => {
+  if (!window.ethereum) { msg.textContent = "No EVM wallet found in this browser."; msg.className = "err"; return; }
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  signer = await provider.getSigner();
+  const addr = await signer.getAddress();
+  contract = new ethers.Contract(CONTRACT, ABI, signer);
+  const agent = await read.isAgent(addr);
+  me.innerHTML = "Connected: <code>" + addr + "</code> — Agent ID holder: <b>" + (agent ? "yes" : "no") + "</b>";
+  send.disabled = setMotto.disabled = !agent;
+  if (!agent) { msg.textContent = "This address holds no Agent ID, so it cannot tip."; msg.className = "err"; }
+};
+send.onclick = async () => {
+  try {
+    msg.textContent = "Sending… confirm in your wallet.";
+    const tx = await contract.tip(to.value.trim(), { value: ethers.parseEther(amt.value.trim()) });
+    await tx.wait();
+    msg.textContent = "Tip sent. Tx: " + tx.hash; msg.className = "ok"; refresh();
+  } catch (e) { msg.textContent = "Failed: " + (e.shortMessage || e.message); msg.className = "err"; }
+};
+setMotto.onclick = async () => {
+  try {
+    const tx = await contract.setMotto(motto.value);
+    await tx.wait();
+    msg.textContent = "Motto set."; msg.className = "ok"; refresh();
+  } catch (e) { msg.textContent = "Failed: " + (e.shortMessage || e.message); msg.className = "err"; }
+};
+refresh();
+</script>
+</body>
+</html>
